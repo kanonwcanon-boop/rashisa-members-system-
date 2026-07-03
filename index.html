@@ -299,7 +299,8 @@ function setBackendUrl(u){ localStorage.setItem(BACKEND_KEY, u); }
 async function apiGet(key){
   const url = getBackendUrl();
   if(!url) throw new Error('backend未設定');
-  const res = await fetch(url + '?key=' + encodeURIComponent(key));
+  const res = await fetch(url + '?key=' + encodeURIComponent(key) + '&_=' + Date.now(), { cache:'no-store' });
+  if(!res.ok) throw new Error('サーバーエラー(' + res.status + ')');
   const text = await res.text();
   if(!text || text==='null') return null;
   return JSON.parse(text);
@@ -307,22 +308,61 @@ async function apiGet(key){
 async function apiSet(key, value){
   const url = getBackendUrl();
   if(!url) throw new Error('backend未設定');
-  await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({key, value: JSON.stringify(value)}) });
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({key, value: JSON.stringify(value)}), cache:'no-store' });
+  if(!res.ok) throw new Error('サーバーエラー(' + res.status + ')');
 }
 
+let dataLoadError = false;
 async function loadData(){
+  dataLoadError = false;
   try{
     const m = await apiGet('members');
-    members = m || INITIAL_MEMBERS;
-    if(!m) await apiSet('members', INITIAL_MEMBERS);
-  }catch(e){ members = INITIAL_MEMBERS; }
+    if(m){
+      members = m;
+    } else if(!members || !members.length){
+      // 本当に初回のみ、Excel取り込み時点のデータで初期化する
+      members = INITIAL_MEMBERS;
+      await apiSet('members', INITIAL_MEMBERS);
+    }
+    // m が null で既に members がある場合は、今表示している内容をそのまま維持する（勝手に古いデータへ戻さない）
+  }catch(e){
+    dataLoadError = true;
+    toast('データの読み込みに失敗しました（' + e.message + '）。保存先URLの接続状況をご確認ください。', 'error');
+    // 通信エラー時は今の画面の内容をそのまま維持し、勝手に取り込み時点のデータへ戻さない
+  }
   try{
     const s = await apiGet('settings');
     settings = s || {slackWebhook:''};
-  }catch(e){ settings = {slackWebhook:''}; }
+  }catch(e){ settings = settings || {slackWebhook:''}; }
 }
-async function saveMembers(){ try{ await apiSet('members', members); }catch(e){ toast('保存に失敗しました。データ保存先の設定をご確認ください。','error'); } }
-async function saveSettings(){ try{ await apiSet('settings', settings); }catch(e){ toast('設定の保存に失敗しました。','error'); } }
+async function apiSetVerified(key, value){
+  await apiSet(key, value);
+  await new Promise(r=>setTimeout(r, 600));
+  const check = async ()=>{
+    try{ return await apiGet(key); }catch(e){ return undefined; }
+  };
+  let confirmed = await check();
+  if(confirmed !== undefined && JSON.stringify(confirmed) === JSON.stringify(value)) return true;
+  if(confirmed === undefined) return true; // 確認自体が失敗しただけとみなし、保存は成功扱いにする
+  // 反映されていなかった場合は一度だけ再送する
+  await apiSet(key, value);
+  await new Promise(r=>setTimeout(r, 600));
+  confirmed = await check();
+  if(confirmed !== undefined && JSON.stringify(confirmed) === JSON.stringify(value)) return true;
+  return false;
+}
+async function saveMembers(){
+  try{
+    const ok = await apiSetVerified('members', members);
+    if(!ok) toast('⚠️ 保存が正しく反映されませんでした。もう一度「保存」し直してください（このまま閉じると編集内容が消える可能性があります）。','error');
+  }catch(e){ toast('保存に失敗しました: ' + e.message + '。編集内容が消えないよう、このページを閉じずにもう一度保存を試してください。','error'); }
+}
+async function saveSettings(){
+  try{
+    const ok = await apiSetVerified('settings', settings);
+    if(!ok) toast('⚠️ 設定の保存が正しく反映されませんでした。もう一度お試しください。','error');
+  }catch(e){ toast('設定の保存に失敗しました: ' + e.message, 'error'); }
+}
 
 /* ---------------- First-run backend setup screen ---------------- */
 function renderSetupScreen(){

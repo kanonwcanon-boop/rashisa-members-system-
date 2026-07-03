@@ -517,7 +517,8 @@ function alertCard(m, dateField, dateLabel){
     </div>
   `;
 }
-function simpleAlertCard(m, reasonLabel){
+function simpleAlertCard(m, reasonLabel, quickAction){
+  const quickBtn = quickAction ? `<button class="btn btn-ghost btn-sm" data-quickdone="${m.id}" data-quicktype="${quickAction.type}">${quickAction.label}</button>` : '';
   return `
     <div class="reminder-card">
       <div class="rc-main" data-open="${m.id}">
@@ -528,6 +529,7 @@ function simpleAlertCard(m, reasonLabel){
         </div>
       </div>
       <div class="row-actions">
+        ${quickBtn}
         <button class="btn btn-brass btn-sm" data-send="${m.id}" data-reason="${reasonLabel}">Slackへ送信</button>
         <button class="icon-btn" data-copy="${m.id}" data-reason="${reasonLabel}" title="コピー">📋</button>
       </div>
@@ -555,8 +557,8 @@ function renderAlerts(){
     ${section('renewal','契約更新が近い（30日以内）','更新日をもとに表示', a.renewal, a.renewal.map(m=>alertCard(m,'renewalDate','更新日')).join(''))}
     ${section('invoice','次回請求書発行が近い（14日以内）','分割・月額会員の請求書発行日', a.invoice, a.invoice.map(m=>alertCard(m,'nextInvoiceDate','請求日')).join(''))}
     ${section('paymentOverdue','入金予定日を過ぎている','未回収の可能性があります', a.paymentOverdue, a.paymentOverdue.map(m=>alertCard(m,'nextPaymentDueDate','入金予定日')).join(''))}
-    ${section('noInterview','インタビュー未実施','インタビュー実施日が未登録の会員', a.noInterview, a.noInterview.map(m=>simpleAlertCard(m,'インタビュー未実施')).join(''))}
-    ${section('noContract','契約書 未締結','契約書ステータスが「締結完了」以外の会員', a.noContract, a.noContract.map(m=>simpleAlertCard(m,'契約書未締結')).join(''))}
+    ${section('noInterview','インタビュー未実施','インタビュー実施日が未登録の会員', a.noInterview, a.noInterview.map(m=>simpleAlertCard(m,'インタビュー未実施',{type:'interview',label:'実施済みにする'})).join(''))}
+    ${section('noContract','契約書 未締結','契約書ステータスが「締結完了」以外の会員', a.noContract, a.noContract.map(m=>simpleAlertCard(m,'契約書未締結',{type:'contract',label:'締結完了にする'})).join(''))}
   `;
 }
 
@@ -673,6 +675,7 @@ function attachTabHandlers(){
     document.querySelectorAll('[data-send]').forEach(b=>b.onclick = (e)=>{ e.stopPropagation(); const m = members.find(x=>x.id===Number(b.dataset.send)); sendSlackForMember(m, b.dataset.reason); });
     document.querySelectorAll('[data-copy]').forEach(b=>b.onclick = (e)=>{ e.stopPropagation(); const m = members.find(x=>x.id===Number(b.dataset.copy)); copyMemberMessage(m, b.dataset.reason); });
     document.querySelectorAll('[data-bulksend]').forEach(b=>b.onclick = ()=>sendBulkSlack(b.dataset.bulksend));
+    document.querySelectorAll('[data-quickdone]').forEach(b=>b.onclick = (e)=>{ e.stopPropagation(); markQuickDone(Number(b.dataset.quickdone), b.dataset.quicktype); });
   }
   if(activeTab==='settings'){
     document.getElementById('saveBackendBtn').onclick = async ()=>{
@@ -768,9 +771,23 @@ document.getElementById('saveBtn').onclick = async ()=>{
   render();
 };
 
+async function markQuickDone(id, type){
+  const idx = members.findIndex(x=>x.id===id);
+  if(idx<0) return;
+  const today = new Date().toISOString().slice(0,10);
+  if(type==='interview'){
+    members[idx].interviewDone = today;
+    toast(`${members[idx].company} をインタビュー実施済みにしました`,'success');
+  } else if(type==='contract'){
+    members[idx].contractDoc = '締結完了';
+    toast(`${members[idx].company} を契約書締結完了にしました`,'success');
+  }
+  await saveMembers();
+  render();
+}
+
 async function deleteMember(id){
   const m = members.find(x=>x.id===id);
-  if(!confirm(`「${m.company}」を削除します。よろしいですか？`)) return;
   members = members.filter(x=>x.id!==id);
   await saveMembers();
   toast('削除しました','success');

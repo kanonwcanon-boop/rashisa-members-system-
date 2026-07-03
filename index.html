@@ -310,6 +310,9 @@ async function apiSet(key, value){
   if(!url) throw new Error('backend未設定');
   const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify({key, value: JSON.stringify(value)}), cache:'no-store' });
   if(!res.ok) throw new Error('サーバーエラー(' + res.status + ')');
+  let body;
+  try{ body = JSON.parse(await res.text()); }catch(e){ body = null; }
+  if(body && body.ok === false) throw new Error(body.error === 'busy' ? '保存が混み合っています。少し待ってもう一度お試しください' : (body.error || '保存に失敗しました'));
 }
 
 let dataLoadError = false;

@@ -86,6 +86,8 @@
   .chip-未設定{ background:#eceae2; color:var(--slate); }
   .chip-継続中{ background:var(--forest-soft); color:var(--forest); }
   .chip-解約{ background:var(--rust-soft); color:var(--rust); }
+  .chip-休会{ background:var(--amber-soft); color:var(--brass-deep); }
+  .chip-破棄{ background:#e6e4dc; color:#5c5f56; }
   .chip-ok{ background:var(--forest-soft); color:var(--forest); }
   .chip-warn{ background:var(--rust-soft); color:var(--rust); }
 
@@ -201,7 +203,7 @@
     <div class="modal-head">
       <h3 id="modalTitle">会員を追加</h3>
       <div class="status-toggle" id="statusToggleWrap" style="display:none;">
-        <select id="statusSelect"><option value="継続中">継続中</option><option value="解約">解約</option></select>
+        <select id="statusSelect"><option value="継続中">継続中</option><option value="休会">休会</option><option value="解約">解約</option><option value="破棄">破棄</option></select>
       </div>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -269,7 +271,7 @@ let settings = {slackWebhook:''};
 let activeTab = 'members';
 let editingId = null;
 let filterCat = 'all';
-let filterStatus = 'continuing';
+let filterStatus = '継続中';
 let searchQuery = '';
 
 function uid(){ return Date.now() + Math.floor(Math.random()*1000); }
@@ -348,7 +350,7 @@ function renderSetupScreen(){
 
 /* ---------------- Alert computation ---------------- */
 function computeAlerts(){
-  const active = members.filter(m=>m.status!=='解約');
+  const active = members.filter(m=>m.status==='継続中');
   const renewal = active.filter(m=>isRealDate(m.renewalDate)).map(m=>({...m,_days:daysUntil(m.renewalDate)})).filter(m=>m._days<=30).sort((a,b)=>a._days-b._days);
   const invoice = active.filter(m=>isRealDate(m.nextInvoiceDate)).map(m=>({...m,_days:daysUntil(m.nextInvoiceDate)})).filter(m=>m._days<=14).sort((a,b)=>a._days-b._days);
   const paymentOverdue = active.filter(m=>isRealDate(m.nextPaymentDueDate)).map(m=>({...m,_days:daysUntil(m.nextPaymentDueDate)})).filter(m=>m._days<0).sort((a,b)=>a._days-b._days);
@@ -378,8 +380,7 @@ function updateNavBadge(){
 
 function renderMembers(){
   let list = members.filter(m=>{
-    if(filterStatus==='continuing' && m.status==='解約') return false;
-    if(filterStatus==='cancelled' && m.status!=='解約') return false;
+    if(filterStatus!=='all' && m.status!==filterStatus) return false;
     if(filterCat!=='all' && m.paymentCategory!==filterCat) return false;
     if(searchQuery){
       const q = searchQuery.toLowerCase();
@@ -427,8 +428,10 @@ function renderMembers(){
         <option value="未設定" ${filterCat==='未設定'?'selected':''}>未設定</option>
       </select>
       <select id="statusFilter">
-        <option value="continuing" ${filterStatus==='continuing'?'selected':''}>継続中のみ</option>
-        <option value="cancelled" ${filterStatus==='cancelled'?'selected':''}>解約のみ</option>
+        <option value="継続中" ${filterStatus==='継続中'?'selected':''}>継続中のみ</option>
+        <option value="休会" ${filterStatus==='休会'?'selected':''}>休会のみ</option>
+        <option value="解約" ${filterStatus==='解約'?'selected':''}>解約のみ</option>
+        <option value="破棄" ${filterStatus==='破棄'?'selected':''}>破棄のみ</option>
         <option value="all" ${filterStatus==='all'?'selected':''}>すべて</option>
       </select>
       <div class="spacer"></div>
@@ -461,7 +464,10 @@ function alertCard(m, dateField, dateLabel){
           <span class="rc-date">${dateLabel} ${fmtDate(m[dateField])}</span>
         </div>
       </div>
-      <button class="btn btn-brass btn-sm" data-copy="${m.id}" data-reason="${dateLabel}">📋 コピーしてSlackへ</button>
+      <div class="row-actions">
+        <button class="btn btn-brass btn-sm" data-send="${m.id}" data-reason="${dateLabel}">Slackへ送信</button>
+        <button class="icon-btn" data-copy="${m.id}" data-reason="${dateLabel}" title="コピー">📋</button>
+      </div>
     </div>
   `;
 }
@@ -475,7 +481,10 @@ function simpleAlertCard(m, reasonLabel){
           <span>形態: ${esc(m.paymentCategory)}</span>
         </div>
       </div>
-      <button class="btn btn-brass btn-sm" data-copy="${m.id}" data-reason="${reasonLabel}">📋 コピーしてSlackへ</button>
+      <div class="row-actions">
+        <button class="btn btn-brass btn-sm" data-send="${m.id}" data-reason="${reasonLabel}">Slackへ送信</button>
+        <button class="icon-btn" data-copy="${m.id}" data-reason="${reasonLabel}" title="コピー">📋</button>
+      </div>
     </div>
   `;
 }
@@ -489,7 +498,7 @@ function renderAlerts(){
         <span class="count">${items.length}</span>
         <span class="desc">${desc}</span>
         <span class="spacer"></span>
-        ${items.length ? `<button class="btn btn-ghost btn-sm" data-bulk="${id}">📋 まとめてコピー</button>` : ''}
+        ${items.length ? `<button class="btn btn-brass btn-sm" data-bulksend="${id}">まとめてSlackへ送信</button>` : ''}
       </div>
       ${items.length ? body : `<div class="alert-empty">対象の会員はいません。</div>`}
     </div>
@@ -506,7 +515,7 @@ function renderAlerts(){
 }
 
 function renderDashboard(){
-  const active = members.filter(m=>m.status!=='解約');
+  const active = members.filter(m=>m.status==='継続中');
   const cats = ['一括','月額','クレジット','未設定'];
   const catCounts = cats.map(c=>active.filter(m=>m.paymentCategory===c).length);
   const total = active.length || 1;
@@ -532,7 +541,7 @@ function renderDashboard(){
     <div class="page-head"><div><h2>ダッシュボード</h2><p>継続中の会員 ${active.length} 件（全 ${members.length} 件中）を集計しています。</p></div></div>
     <div class="ledger-rule"></div>
     <div class="stats-grid">
-      <div class="stat-card accent"><div class="label">継続中の会員数</div><div class="value">${active.length}</div><div class="sub">全${members.length}件（解約 ${members.length-active.length}件）</div></div>
+      <div class="stat-card accent"><div class="label">継続中の会員数</div><div class="value">${active.length}</div><div class="sub">全${members.length}件（休会・解約・破棄 ${members.length-active.length}件）</div></div>
       <div class="stat-card"><div class="label">月次売上目安（月割換算合計）</div><div class="value">${yen(mrr)}</div><div class="sub">継続中会員の月割金額の合計</div></div>
       <div class="stat-card"><div class="label">年間契約金額の合計</div><div class="value">${yen(yearly)}</div><div class="sub">継続中会員の契約金額合計</div></div>
       <div class="stat-card warn"><div class="label">要対応アラート</div><div class="value">${alertTotal}</div><div class="sub">アラートタブで内訳を確認</div></div>
@@ -578,18 +587,16 @@ function renderSettings(){
       <div class="note">この設定はブラウザ（端末）ごとに保存されます。社内の人が別のパソコンで開く場合は、その人にも同じURLを一度貼り付けてもらってください。</div>
     </div>
     <div class="panel settings-panel" style="margin-top:18px;">
-      <h3>Slackへの通知方法</h3>
-      <div class="note" style="margin-top:0;"><b>今の方式：コピー＆貼り付け。</b> アラート画面の「📋 コピーしてSlackへ」を押すと、通知文がクリップボードにコピーされます。Slack側で貼り付ければ送信完了です。ブラウザのセキュリティ上、ボタン一つでの自動送信はできません。</div>
-      <h3 style="margin-top:22px;">Webhook自動送信（実験的・非推奨）</h3>
+      <h3>Slack Webhook</h3>
       <div class="form-field">
         <label>Webhook URL</label>
         <input type="text" id="webhookInput" placeholder="https://hooks.slack.com/services/..." value="${esc(settings.slackWebhook)}">
       </div>
       <div style="display:flex; gap:10px;">
-        <button class="btn btn-ghost btn-sm" id="saveWebhookBtn">保存する</button>
-        <button class="btn btn-ghost btn-sm" id="testWebhookBtn">試しに送ってみる</button>
+        <button class="btn btn-primary btn-sm" id="saveWebhookBtn">保存する</button>
+        <button class="btn btn-ghost btn-sm" id="testWebhookBtn">テスト送信</button>
       </div>
-      <div class="note">環境によってはこのボタンでも送信できないことがあります。基本はコピー＆貼り付け方式をお使いください。</div>
+      <div class="note">ここで保存したURLは、①アラート画面の「Slackへ送信」ボタン、②Google Apps Scriptの毎日自動通知（トリガー設定が必要）の両方で使われます。「Slackへ送信」がうまく動かない場合は、隣の📋ボタンでコピーしてSlackに貼り付けてください。</div>
     </div>
     <div class="panel settings-panel" style="margin-top:18px;">
       <h3>データについて</h3>
@@ -612,8 +619,9 @@ function attachTabHandlers(){
   }
   if(activeTab==='alerts'){
     document.querySelectorAll('[data-open]').forEach(el=>el.onclick = ()=>openModal(Number(el.dataset.open)));
+    document.querySelectorAll('[data-send]').forEach(b=>b.onclick = (e)=>{ e.stopPropagation(); const m = members.find(x=>x.id===Number(b.dataset.send)); sendSlackForMember(m, b.dataset.reason); });
     document.querySelectorAll('[data-copy]').forEach(b=>b.onclick = (e)=>{ e.stopPropagation(); const m = members.find(x=>x.id===Number(b.dataset.copy)); copyMemberMessage(m, b.dataset.reason); });
-    document.querySelectorAll('[data-bulk]').forEach(b=>b.onclick = ()=>copyBulkMessage(b.dataset.bulk));
+    document.querySelectorAll('[data-bulksend]').forEach(b=>b.onclick = ()=>sendBulkSlack(b.dataset.bulksend));
   }
   if(activeTab==='settings'){
     document.getElementById('saveBackendBtn').onclick = async ()=>{
